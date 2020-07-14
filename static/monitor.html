@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>RPi Cam Preview</title>
+    <script>
+    var mjpeg_img;
+	var pan = 0;
+	var tilt = 0;
+	
+	//set the hat to face forward
+	var rqst = new XMLHttpRequest();
+	rqst.open("GET","/pan?pan=0&tilt=0", true );
+	rqst.send();
+	
+	
+ 
+    function reload_img () 
+	{
+      mjpeg_img.src = "/cam?time=" + new Date().getTime();
+    }
+    function error_img () 
+	{
+      setTimeout("mjpeg_img.src = '/cam?time=' + new Date().getTime();", 100);
+    }
+    function init() 
+	{
+		//constantly reload the image
+		mjpeg_img = document.getElementById("mjpeg_dest");
+		mjpeg_img.onload = reload_img;
+		mjpeg_img.onerror = error_img;
+		reload_img();
+    }
+	
+
+	function Move(panBy, tiltBy)
+	{	
+		if (tiltBy == 0 && panBy == 0)
+		{
+			//face forwards
+			var rqst = new XMLHttpRequest();
+			rqst.open("GET","/pan?pan=0&tilt=0", true );
+			rqst.send();			
+		}
+		
+		//we're panning
+		if (tiltBy == 0)
+		{
+			if ( (pan == 90) && (panBy > 0))
+			{
+				alert("Cannot go any more left!")
+			}
+			else
+			{
+				if ((pan == -90) && (panBy < 0))
+				{
+					alert("Cannot go any more right!")
+				}
+				else
+				{
+					pan = pan + panBy;				
+					var rqst = new XMLHttpRequest();
+					rqst.open("GET","/pan?pan=" + pan + "&tilt="+tilt, true );
+					rqst.send();	
+				}				
+			}
+		}
+		else
+		{
+			//we're tilting
+			if ( (tilt == 90) && (tiltBy > 0))
+			{
+				alert("Cannot go any more down!")
+			}
+			else
+			{
+				if ((tilt == -90) && (tiltBy < 0))
+				{
+					alert("Cannot go any more up!")
+				}
+				else
+				{
+					tilt = tilt + tiltBy;				
+					var rqst = new XMLHttpRequest();
+					rqst.open("GET","/pan?pan=" + pan + "&tilt="+tilt, true );
+					rqst.send();	
+				}				
+			}
+		}
+	}
+
+
+	
+    </script>
+  </head>
+  <body onload="setTimeout('init();', 100);">
+    <center>
+      <div><img id="mjpeg_dest" /></div>
+	  <table>
+		<tr>
+			<td>&nbsp;</td>
+			<td>
+				<a href ="javascript:Move(0,-10)"><img width="20" height="20"  src="/static/img/up.png"/></a>
+			</td>
+			<td>&nbsp;</td>
+		</tr>
+		<tr>
+			<td>
+				<a href ="javascript:Move(10,0)"><img width="20" height="20" src="/static/img/left.png"/></a>
+			</td>
+			<td><a href ="javascript:Move(0,0)"><img width="20" height="20"  src="/static/img/home.png"/></a></td>
+			<td>
+				<a href ="javascript:Move(-10,0)"><img  width="20" height="20" src="/static/img/right.png"/></a>
+			</td>
+		</tr>
+		<tr>
+			<td>&nbsp;</td>
+			<td>
+				<a href ="javascript:Move(0,10)"><img width="20" height="20"  src="/static/img/down.png"/></a>
+			</td>
+			<td>&nbsp;</td>
+		</tr>
+	  </table>
+    </center>
+ </body>
+</html>

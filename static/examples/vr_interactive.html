@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<title>
+			FULLTILT DeviceOrientation three.js interactive test page
+		</title>
+		<style type="text/css">
+			body {
+				background-color: #000000;
+				margin: 0;
+				overflow: hidden;
+				font-family: Arial, Helvetica, sans-serif;
+			}
+
+			#info {
+				position: fixed;
+				display: inline-block;
+				top: 0px;
+				left: 0px;
+				color: #ddd;
+				background-color: #000;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 18px;
+				font-weight: bold;
+				text-align: center;
+				z-index: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<script src="./resources/libs/three.min.js" type="text/javascript"></script>
+		<script src="./resources/libs/hand.minified-1.2.1.js" type="text/javascript"></script>
+
+		<!-- DEVICEORIENTATION EMULATOR DETECTION + BOOTSTRAP -->
+		<script src="https://richtr.github.io/doe/doe.js"></script>
+
+		<script src="../dist/fulltilt.min.js" type="text/javascript"></script>
+
+		<div id="info">
+			Touch to place objects in world
+		</div>
+
+		<script type="text/javascript">
+
+			var camera, scene, light, renderer, controls;
+
+			var startClientHeight, startFOVFrustrumHeight;
+
+			// Setup three.js world
+			function setup() {
+
+				camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 1, 1000 );
+
+				scene = new THREE.Scene();
+
+				hemiLight = new THREE.HemisphereLight( 0xffffff, 0xffffff, 0.6 );
+				hemiLight.color.setHSL( 0.6, 1, 0.6 );
+				hemiLight.groundColor.setHSL( 0.095, 1, 0.75 );
+				hemiLight.position.set( -1000, -250, -1000 );
+				hemiLight.shadowCameraVisible = true;
+				scene.add( hemiLight );
+
+				var cube = generateCubeMap('Beach');
+				scene.add( cube );
+
+				renderer = new THREE.WebGLRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				document.body.appendChild( renderer.domElement );
+
+				// Add Pointer Event Listener (via hand.minified-1.2.1.js)
+				renderer.domElement.addEventListener("pointerup", addDynmaic3DObject, false);
+
+				startClientHeight = window.innerHeight;
+				startFOVFrustrumHeight = 2000 * Math.tan( THREE.Math.degToRad( ( camera.fov || 75 ) / 2 ) );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// Create new FULLTILT library for *compass*-based deviceorientation
+				var orientationPromise = FULLTILT.getDeviceOrientation({ type: "world" });
+
+				// Wait for Promise fulfillment
+				orientationPromise.then(function(deviceOrientationController) {
+
+					controls = deviceOrientationController;
+
+					draw(); // start
+
+				}).catch(function(reason) {
+
+					console.error(reason);
+
+				});
+
+			}
+
+			// Computed device orientation rotation vector
+			var orientationQuat = new THREE.Quaternion();
+
+			// World frame transform (- PI/2 around the x-axis)
+			var worldQuat = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) );
+
+			// Render three.js world
+			function draw() {
+
+				var quat = controls.getScreenAdjustedQuaternion();
+
+				orientationQuat.set( quat.x, quat.y, quat.z, quat.w );
+
+				// IMPORTANT! set deviceorientation camera to three.js world frame
+				// (i.e. make camera look out the back of the screen by rotating the camera x-axis by -PI/2)
+				camera.quaternion.multiplyQuaternions( worldQuat, orientationQuat );
+
+				// Render scene
+				renderer.render( scene, camera );
+
+				// Re-draw at next browser paint
+				requestAnimationFrame( draw );
+
+			}
+
+			// Generate scene assets
+			function generateCubeMap( folderName ) {
+
+				var sides = [
+					'./resources/textures/cube/' + folderName + '/posx.jpg',
+					'./resources/textures/cube/' + folderName + '/negx.jpg',
+					'./resources/textures/cube/' + folderName + '/posy.jpg',
+					'./resources/textures/cube/' + folderName + '/negy.jpg',
+					'./resources/textures/cube/' + folderName + '/posz.jpg',
+					'./resources/textures/cube/' + folderName + '/negz.jpg'
+				];
+
+				var cubemap = THREE.ImageUtils.loadTextureCube(sides); // load textures
+				cubemap.format = THREE.RGBFormat;
+
+				var shader = THREE.ShaderLib['cube']; // init cube shader from built-in lib
+				shader.uniforms['tCube'].value = cubemap; // apply textures to shader
+
+				// create shader material
+				var skyBoxMaterial = new THREE.ShaderMaterial( {
+				  fragmentShader: shader.fragmentShader,
+				  vertexShader: shader.vertexShader,
+				  uniforms: shader.uniforms,
+				  depthWrite: false,
+				  side: THREE.BackSide
+				});
+
+				// create skybox mesh
+				var skybox = new THREE.Mesh(
+				  new THREE.BoxGeometry(1000, 1000, 1000),
+				  skyBoxMaterial
+				);
+
+				return skybox;
+
+			}
+
+			function addDynmaic3DObject(event) {
+
+				var pos = get3DPositionFromScreen(event.clientX, event.clientY);
+
+				pos.multiplyScalar(1000);
+
+				var cube = new THREE.Mesh(
+					new THREE.BoxGeometry(150, 150, 150),
+					new THREE.MeshLambertMaterial({ color: 0xff0000 })
+				);
+				cube.position.copy( pos );
+
+				// Add object to scene
+				scene.add( cube );
+
+			}
+
+			function get3DPositionFromScreen(clientX, clientY) {
+
+				var vector = new THREE.Vector3();
+
+				vector.set(
+				    ( clientX / window.innerWidth ) * 2 - 1,
+				    - ( clientY / window.innerHeight ) * 2 + 1,
+				    0.5 );
+
+				// Convert current camera quaternion value to vector
+				var cameraPosition = new THREE.Vector3();
+				cameraPosition.applyQuaternion(camera.quaternion);
+
+				vector.unproject( camera );
+
+				var pos = vector.sub( cameraPosition ).normalize();
+
+				return pos;
+
+			}
+
+			// Gracefully handle screen resizes
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+
+				// Re-calculate object FOV to maintain scene's relative size after a screen rotation / resize
+				var relativeFOVFrustrumHeight = startFOVFrustrumHeight * ( window.innerHeight / startClientHeight );
+				var relativeVerticalFOV = THREE.Math.radToDeg( 2 * Math.atan( relativeFOVFrustrumHeight / 2000 ) );
+				camera.fov = relativeVerticalFOV;
+
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			// Go...
+			setup();
+
+		</script>
+	</body>
+</html>

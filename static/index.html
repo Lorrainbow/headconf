@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Pi Viewer</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+      body {
+        margin: 0px;
+        overflow: hidden;
+      }
+      #webglviewer {
+        bottom: 0;
+        left: 0;
+        position: absolute;
+        right: 0;
+        top: 0;
+        z-index: 100;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="webglviewer"></div>
+    <canvas id="tempCanvas"></canvas>
+
+    <script src="/static/js/three.min.js"></script>
+    <script src="/static/js/StereoEffect.js"></script>
+    <script src="/static/js/fulltilt.min.js"></script>
+
+    <script>
+	var alpha = null;
+	var beta = null;
+	var gamma = null;
+	var sayalert = 0;
+	
+	window.addEventListener('deviceorientation', function(event) {
+	alpha = event.alpha;
+	beta = event.beta;
+	gamma = event.gamma;
+	
+	//console.log(event.alpha + ' : ' + event.beta + ' : ' + event.gamma);
+});
+	
+      var scene,
+          camera, 
+          renderer,
+          element,
+          container,
+          effect,
+          canvas,
+          context,
+          deviceOrientation,
+          lastCameraMoveTime,
+          lastImageUpdateTime;
+  
+  (function draw() {
+
+
+    // Execute function on each browser animation frame
+    requestAnimationFrame(draw);
+
+  })();
+      init();
+
+      function init() {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.001, 700);
+        camera.position.set(0, 15, 0);
+        scene.add(camera);
+
+        renderer = new THREE.WebGLRenderer();
+        element = renderer.domElement;
+        container = document.getElementById('webglviewer');
+        container.appendChild(element);
+
+        effect = new THREE.StereoEffect(renderer);
+
+        element.addEventListener('click', fullscreen, false);
+
+        canvas = document.getElementById('tempCanvas');
+        canvas.width = 512;
+        canvas.height = 288;
+        canvas.width = nextPowerOf2(canvas.width);
+        canvas.height = nextPowerOf2(canvas.height);
+
+        function nextPowerOf2(x) { 
+            return Math.pow(2, Math.ceil(Math.log(x) / Math.log(2)));
+        }
+
+        context = canvas.getContext('2d');
+        texture = new THREE.Texture(canvas);
+        texture.context = context;
+
+        var cameraPlane = new THREE.PlaneGeometry(512, 512);
+
+        cameraMesh = new THREE.Mesh(cameraPlane, new THREE.MeshBasicMaterial({
+          color: 0xffffff, opacity: 1, map: texture
+        }));
+        cameraMesh.position.z = -200;
+
+        scene.add(cameraMesh);
+        lastCameraMoveTime = new Date().getTime();
+        lastImageUpdateTime = new Date().getTime();
+        animate();
+      }
+
+      function animate() 
+	  {
+        if (context) 
+		{
+          var tm = new Date().getTime();
+          if (tm > lastImageUpdateTime+1000) 
+		  {
+            lastImageUpdateTime = tm;
+            var piImage = new Image();
+
+            piImage.onload = function() 
+			{
+              context.drawImage(piImage, 0, 0, canvas.width, canvas.height);
+
+              texture.needsUpdate = true;
+            }
+            piImage.src = "/cam?tm=" + tm;
+          }
+          
+          
+		  //update pantilt
+		  if (tm > lastCameraMoveTime+500) 
+		  {
+				lastCameraMoveTime = tm;
+                if (alpha === null)
+				{
+					//this is not a phone
+					if (sayalert == 0)
+						alert("You should go to /static/monitor/html");
+						sayalert = 1;
+				}
+				else
+				{
+				
+					
+					if (sayalert == 0)
+					{
+						var rqst = new XMLHttpRequest();						
+						sayalert = 1;
+						rqst.open("GET","/pan?pan=0&tilt=0", true );
+						rqst.send();
+						alert ("sit straight!")
+					}
+					else
+					{
+						var rqst = new XMLHttpRequest();
+						rqst.open("GET","/pan?pan=" + alpha + "&tilt="+beta, true );
+						rqst.send();
+					}
+				}
+            }
+         }
+        
+
+        requestAnimationFrame(animate);
+
+        update();
+        render();
+      }
+
+      function resize() {
+        var width = container.offsetWidth;
+        var height = container.offsetHeight;
+
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+
+        renderer.setSize(width, height);
+        effect.setSize(width, height);
+      }
+
+      function update(dt) {
+        resize();
+
+        camera.updateProjectionMatrix();
+      }
+
+      function render(dt) {
+        effect.render(scene, camera);
+      }
+
+      function fullscreen() {
+        if (container.requestFullscreen) {
+          container.requestFullscreen();
+        } else if (container.msRequestFullscreen) {
+          container.msRequestFullscreen();
+        } else if (container.mozRequestFullScreen) {
+          container.mozRequestFullScreen();
+        } else if (container.webkitRequestFullscreen) {
+          container.webkitRequestFullscreen();
+        }
+      }
+    </script>
+  </body>
+</html>

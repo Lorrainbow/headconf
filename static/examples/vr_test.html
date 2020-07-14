@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<title>
+			FULLTILT DeviceOrientation three.js test page
+		</title>
+		<style type="text/css">
+			body {
+				background-color: #000000;
+				margin: 0;
+				overflow: hidden;
+				font-family: Arial, Helvetica, sans-serif;
+			}
+
+			#info {
+				position: fixed;
+				display: inline-block;
+				top: 0px;
+				left: 0px;
+				color: #ddd;
+				background-color: #000;
+				padding: 5px;
+				font-family: Monospace;
+				font-size: 13px;
+				font-weight: bold;
+				text-align: center;
+				z-index: 1;
+			}
+
+			#info #controllertype {
+				display: inline-block;
+				padding: 2px 5px;
+				margin: 2px 5px;
+				background-color: #ccc;
+				color: #000;
+				border: 1px solid #999;
+			}
+
+			.small {
+				font-size: 0.8em;
+				text-align: center;
+			}
+		</style>
+	</head>
+	<body>
+		<script src="./resources/libs/three.min.js" type="text/javascript"></script>
+		<script src="./resources/libs/CSS3DRenderer.js" type="text/javascript"></script>
+
+		<!-- DEVICEORIENTATION EMULATOR DETECTION + BOOTSTRAP -->
+		<script src="https://richtr.github.io/doe/doe.js"></script>
+
+		<script src="../dist/fulltilt.min.js" type="text/javascript"></script>
+
+		<div id="info">
+			&raquo; <a id="controllertype" href="#" name="controllertype">Quaternions</a> &laquo;
+			<p class="small">
+				<span id="data_output"></span>
+			</p>
+		</div>
+
+		<script type="text/javascript">
+
+			// DEBUG CODE
+
+			var data_output = document.getElementById('data_output');
+
+			// General data value formatting
+			function printDataValue(input) {
+				if( input === undefined )
+					return "undefined";
+				if( input === null )
+					return "null";
+				if( input === true )
+					return "true";
+				if( input === false )
+					return "false";
+				if( Object.prototype.toString.call(input) === "[object Number]" ) {
+					var val = Math.round((input + 0.00001) * 100) / 100;
+					val = val.toFixed(2);
+					if(val >= 0) val = "&nbsp;" + val; // add buffer in place of '-' symbol
+					return val;
+				}
+
+				return (input + ""); // force stringify
+			}
+
+			function debugQuat(quat) {
+				// Debug output
+				data_output.innerHTML = "[ x: " + printDataValue(quat.x) + ", y: " + printDataValue(quat.y) + ", z: " + printDataValue(quat.z) + ", w: " + printDataValue(quat.w) + " ]";
+			}
+
+			function debugRotMat(rotMat) {
+				data_output.innerHTML = "[" + printDataValue(rotMat.elements[0]) + ", " + printDataValue(rotMat.elements[1]) + ", " + printDataValue(rotMat.elements[2]) + ",<br>&nbsp;" + printDataValue(rotMat.elements[3]) + ", " + printDataValue(rotMat.elements[4]) + ", " + printDataValue(rotMat.elements[5]) + ",<br>&nbsp;" + printDataValue(rotMat.elements[6]) + ", " + printDataValue(rotMat.elements[7]) + ", " + printDataValue(rotMat.elements[8]) + " ]";
+			}
+
+			function debugEuler(euler) {
+				data_output.innerHTML = "alpha: " + printDataValue(euler.alpha) + ", beta: " + printDataValue(euler.beta) + ", gamma: " + printDataValue(euler.gamma);
+			}
+
+		</script>
+
+		<script type="text/javascript">
+
+			var camera, scene, renderer, controls;
+
+			var controlTypes = ['Quaternions', 'Rotation Matrices', 'Euler'];
+			var currentControlType = 0;
+
+			var startClientHeight, startFOVFrustrumHeight;
+
+			// Setup three.js world
+			function setup() {
+
+				camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 1, 1000 );
+
+				scene = new THREE.Scene();
+
+				var cube = generateCubeMap('Beach');
+
+				scene.add( cube );
+
+				renderer = new THREE.CSS3DRenderer();
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				document.body.appendChild( renderer.domElement );
+
+				startClientHeight = window.innerHeight;
+				startFOVFrustrumHeight = 2000 * Math.tan( THREE.Math.degToRad( ( camera.fov || 75 ) / 2 ) );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// Allow switching between 'Quaternion', 'Rotation Matrix' and 'Euler' representations
+				var controllerSelectorEl = document.querySelector('#controllertype');
+
+				controllerSelectorEl.addEventListener('click', function( event ) {
+					event.preventDefault();
+
+					if (++currentControlType === 3) currentControlType = 0;
+
+					controllerSelectorEl.textContent = controlTypes[ currentControlType ];
+				}, false);
+
+				// Create new FULLTILT library for *compass*-based deviceorientation
+				var orientationPromise = FULLTILT.getDeviceOrientation({ type: "world" });
+
+				// Wait for Promise fulfillment
+				orientationPromise.then(function(deviceOrientationController) {
+
+					controls = deviceOrientationController;
+
+					draw(); // start
+
+				}).catch(function(reason) {
+
+					console.error(reason);
+
+				});
+
+			}
+
+			// Computed device orientation rotation vector
+			var threejs_quaternion = new THREE.Quaternion();
+			var fulltilt_quaternion;
+
+			// Rotation matrix objects
+			// (used below when we work with rotation matrices)
+			var threejs_matrix4 = new THREE.Matrix4();
+			var fulltilt_matrix3;
+
+			// Euler angles container object
+			// (used below when we work with Euler angles)
+			var threejs_euler = new THREE.Euler();
+			var fulltilt_euler;
+
+			// World frame quaternion transform (- PI/2 around the x-axis)
+			var world_transform = new THREE.Quaternion( - Math.sqrt( 0.5 ), 0, 0, Math.sqrt( 0.5 ) );
+
+			// Render three.js world + update camera position based on current device orientation
+			function draw() {
+
+				// Use the currently selected rotation representation to set our camera position
+				// (But always convert results to an intermediate quartenion so we can then apply our world transform)
+
+				switch( currentControlType ) {
+					case 0: // Use Quaternion
+
+						fulltilt_quaternion = controls.getScreenAdjustedQuaternion();
+
+						threejs_quaternion.set(
+							fulltilt_quaternion.x,
+							fulltilt_quaternion.y,
+							fulltilt_quaternion.z,
+							fulltilt_quaternion.w
+						);
+
+						debugQuat( fulltilt_quaternion );
+
+						break;
+
+					case 1: // Use Rotation Matrix
+
+						fulltilt_matrix3 = controls.getScreenAdjustedMatrix();
+
+						// Convert 3x3 Full-Tilt matrix to 4x4 Three.js matrix
+						threejs_matrix4.set(
+							fulltilt_matrix3.elements[0], fulltilt_matrix3.elements[1], fulltilt_matrix3.elements[2], 0,
+							fulltilt_matrix3.elements[3], fulltilt_matrix3.elements[4], fulltilt_matrix3.elements[5], 0,
+							fulltilt_matrix3.elements[6], fulltilt_matrix3.elements[7], fulltilt_matrix3.elements[8], 0,
+							0                           , 0                           , 0                           , 1
+						);
+
+						threejs_quaternion.setFromRotationMatrix( threejs_matrix4 );
+
+						debugRotMat( fulltilt_matrix3 );
+
+						break;
+
+					case 2: // Use Euler
+
+						fulltilt_euler = controls.getScreenAdjustedEuler();
+
+						// Convert Full-Tilt Euler to Three.js Euler object
+						threejs_euler.set(
+							THREE.Math.degToRad( fulltilt_euler.beta  ),
+							THREE.Math.degToRad( fulltilt_euler.gamma ),
+							THREE.Math.degToRad( fulltilt_euler.alpha ),
+							'ZXY'
+						);
+
+						threejs_quaternion.setFromEuler( threejs_euler );
+
+						debugEuler( fulltilt_euler );
+
+						break;
+				};
+
+				// IMPORTANT! set deviceorientation camera to three.js world frame
+				// (i.e. make camera look out the back of the screen by rotating the camera x-axis by -PI/2)
+				camera.quaternion.multiplyQuaternions( world_transform, threejs_quaternion );
+
+				// Render scene
+				renderer.render( scene, camera );
+
+				// Re-draw at next browser animation frame
+				requestAnimationFrame( draw );
+
+			}
+
+			// Generate scene assets
+			function generateCubeMap( folderName ) {
+
+				var sides = [
+					{
+						url: './resources/textures/cube/' + folderName + '/posx.jpg',
+						position: [ -512, 0, 0 ],
+						rotation: [ 0, Math.PI / 2, 0 ]
+					},
+					{
+						url: './resources/textures/cube/' + folderName + '/negx.jpg',
+						position: [ 512, 0, 0 ],
+						rotation: [ 0, -Math.PI / 2, 0 ]
+					},
+					{
+						url: './resources/textures/cube/' + folderName + '/posy.jpg',
+						position: [ 0,	512, 0 ],
+						rotation: [ Math.PI / 2, 0, Math.PI ]
+					},
+					{
+						url: './resources/textures/cube/' + folderName + '/negy.jpg',
+						position: [ 0, -512, 0 ],
+						rotation: [ - Math.PI / 2, 0, Math.PI ]
+					},
+					{
+						url: './resources/textures/cube/' + folderName + '/posz.jpg',
+						position: [ 0, 0,	512 ],
+						rotation: [ 0, Math.PI, 0 ]
+					},
+					{
+						url: './resources/textures/cube/' + folderName + '/negz.jpg',
+						position: [ 0, 0, -512 ],
+						rotation: [ 0, 0, 0 ]
+					}
+				];
+
+				var cube = new THREE.Object3D();
+
+				for ( var i = 0; i < sides.length; i ++ ) {
+
+					var side = sides[ i ];
+
+					var element = document.createElement( 'img' );
+					element.width = 1026; // 2 pixels extra to close the gap.
+					element.src = side.url;
+
+					var object = new THREE.CSS3DObject( element );
+					object.position.fromArray( side.position );
+					object.rotation.fromArray( side.rotation );
+					cube.add( object );
+
+				}
+
+				return cube;
+
+			}
+
+			// Gracefully handle screen resizes
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+
+				// Re-calculate object FOV to maintain scene object's relative size after a screen rotation / resize
+				var relativeFOVFrustrumHeight = startFOVFrustrumHeight * ( window.innerHeight / startClientHeight );
+				var relativeVerticalFOV = THREE.Math.radToDeg( 2 * Math.atan( relativeFOVFrustrumHeight / 2000 ) );
+				camera.fov = relativeVerticalFOV;
+
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			// Let's go...
+			setup();
+
+		</script>
+
+		<!-- Github Banner -->
+		<a href="https://github.com/richtr/Full-Tilt"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://camo.githubusercontent.com/38ef81f8aca64bb9a64448d0d70f1308ef5341ab/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f6769746875622f726962626f6e732f666f726b6d655f72696768745f6461726b626c75655f3132313632312e706e67" alt="Fork me on GitHub" data-canonical-src="https://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png"></a>
+	</body>
+</html>
